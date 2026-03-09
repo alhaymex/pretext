@@ -45,6 +45,7 @@ type CorpusReport = {
   diffPx?: number
   predictedLineCount?: number
   browserLineCount?: number
+  browserLineMethod?: 'span-probe' | 'range'
   probeHeight?: number
   normalizedHeight?: number
   mismatchCount?: number
@@ -72,9 +73,12 @@ type CorpusReport = {
     text: string
     sumWidth: number
     fullWidth: number
+    domWidth: number
+    pairAdjustedWidth: number
     segments: Array<{
       text: string
       width: number
+      domWidth: number
       isSpace: boolean
     }>
   } | null
@@ -155,17 +159,17 @@ function printReport(report: CorpusReport): void {
   }
   if (report.probeHeight !== undefined || report.normalizedHeight !== undefined) {
     console.log(
-      `  probe heights: probe ${Math.round(report.probeHeight ?? 0)}px | normalized ${Math.round(report.normalizedHeight ?? 0)}px | book ${actual}px`,
+      `  probe heights: probe ${Math.round(report.probeHeight ?? 0)}px | normalized ${Math.round(report.normalizedHeight ?? 0)}px | book ${actual}px | method ${report.browserLineMethod ?? '-'}`,
     )
   }
   if (report.maxDriftLine !== null && report.maxDriftLine !== undefined) {
     console.log(
-      `  drift sample L${report.maxDriftLine.line}: ${report.maxDriftLine.drift.toFixed(3)}px (${report.maxDriftLine.sumWidth.toFixed(3)} vs ${report.maxDriftLine.fullWidth.toFixed(3)})`,
+      `  drift sample L${report.maxDriftLine.line}: ${report.maxDriftLine.drift.toFixed(3)}px (${report.maxDriftLine.sumWidth.toFixed(3)} sum vs ${report.maxDriftLine.fullWidth.toFixed(3)} full vs ${report.maxDriftLine.domWidth.toFixed(3)} dom vs ${report.maxDriftLine.pairAdjustedWidth.toFixed(3)} pair)`,
     )
     console.log(`  text: ${JSON.stringify(report.maxDriftLine.text.slice(0, 140))}`)
     if (report.maxDriftLine.segments.length > 0) {
       const summary = report.maxDriftLine.segments
-        .map(segment => `${JSON.stringify(segment.text)}@${segment.width.toFixed(2)}${segment.isSpace ? ':space' : ''}`)
+        .map(segment => `${JSON.stringify(segment.text)}@${segment.width.toFixed(2)}/${segment.domWidth.toFixed(2)}${segment.isSpace ? ':space' : ''}`)
         .join(' | ')
       console.log(`  segments: ${summary}`)
     }

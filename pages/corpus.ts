@@ -40,6 +40,7 @@ type CorpusReport = {
   diffPx?: number
   predictedLineCount?: number
   browserLineCount?: number
+  browserLineMethod?: 'span-probe' | 'range'
   probeHeight?: number
   normalizedHeight?: number
   mismatchCount?: number
@@ -52,9 +53,12 @@ type CorpusReport = {
     text: string
     sumWidth: number
     fullWidth: number
+    domWidth: number
+    pairAdjustedWidth: number
     segments: Array<{
       text: string
       width: number
+      domWidth: number
       isSpace: boolean
     }>
   } | null
@@ -283,7 +287,31 @@ function getDiagnosticUnits(prepared: PreparedTextWithSegments): DiagnosticUnit[
   return units
 }
 
-function getBrowserLines(
+function pushDiagnosticLine(
+  lines: DiagnosticLine[],
+  text: string,
+  start: number | null,
+  end: number,
+  normalizedText: string,
+  font: string,
+  direction: string,
+): void {
+  if (text.length === 0 || start === null) return
+  const content = getLineContent(text, end)
+  lines.push({
+    text,
+    contentText: content.text,
+    start,
+    end,
+    contentEnd: content.end,
+    fullWidth: measureFullTextWidth(content.text, font),
+    rawFullWidth: measureFullTextWidth(normalizedText.slice(start, end), font),
+    domWidth: measureDomTextWidth(content.text, font, direction),
+    rawDomWidth: measureDomTextWidth(normalizedText.slice(start, end), font, direction),
+  })
+}
+
+function getBrowserLinesFromSpans(
   prepared: PreparedTextWithSegments,
   div: HTMLDivElement,
   normalizedText: string,
@@ -305,22 +333,6 @@ function getBrowserLines(
     spans.push(span)
   }
 
-  function pushBrowserLine(): void {
-    if (currentLine.length === 0 || currentStart === null) return
-    const content = getLineContent(currentLine, currentEnd)
-    browserLines.push({
-      text: currentLine,
-      contentText: content.text,
-      start: currentStart,
-      end: currentEnd,
-      contentEnd: content.end,
-      fullWidth: measureFullTextWidth(content.text, font),
-      rawFullWidth: measureFullTextWidth(normalizedText.slice(currentStart, currentEnd), font),
-      domWidth: measureDomTextWidth(content.text, font, div.dir || 'ltr'),
-      rawDomWidth: measureDomTextWidth(normalizedText.slice(currentStart, currentEnd), font, div.dir || 'ltr'),
-    })
-  }
-
   for (let i = 0; i < units.length; i++) {
     const unit = units[i]!
     const span = spans[i]!
@@ -328,7 +340,7 @@ function getBrowserLines(
     const rectTop: number | null = rect.width > 0 || rect.height > 0 ? rect.top : lastTop
 
     if (rectTop !== null && lastTop !== null && rectTop > lastTop + 0.5) {
-      pushBrowserLine()
+      pushDiagnosticLine(browserLines, currentLine, currentStart, currentEnd, normalizedText, font, div.dir || 'ltr')
       currentLine = unit.text
       currentStart = unit.start
       currentEnd = unit.end
@@ -341,10 +353,53 @@ function getBrowserLines(
     if (rectTop !== null) lastTop = rectTop
   }
 
-  pushBrowserLine()
+  pushDiagnosticLine(browserLines, currentLine, currentStart, currentEnd, normalizedText, font, div.dir || 'ltr')
   const height = div.getBoundingClientRect().height
   div.textContent = ''
   return { lines: browserLines, height }
+}
+
+function getBrowserLinesFromRange(
+  prepared: PreparedTextWithSegments,
+  div: HTMLDivElement,
+  normalizedText: string,
+  font: string,
+): { lines: DiagnosticLine[], height: number } {
+  const textNode = div.firstChild
+  const browserLines: DiagnosticLine[] = []
+  if (!(textNode instanceof Text)) {
+    return { lines: browserLines, height: div.getBoundingClientRect().height }
+  }
+
+  const units = getDiagnosticUnits(prepared)
+  const range = document.createRange()
+  let currentLine = ''
+  let currentStart: number | null = null
+  let currentEnd = 0
+  let lastTop: number | null = null
+
+  for (const unit of units) {
+    range.setStart(textNode, unit.start)
+    range.setEnd(textNode, unit.end)
+    const rects = range.getClientRects()
+    const rectTop: number | null = rects.length > 0 ? rects[0]!.top : lastTop
+
+    if (rectTop !== null && lastTop !== null && rectTop > lastTop + 0.5) {
+      pushDiagnosticLine(browserLines, currentLine, currentStart, currentEnd, normalizedText, font, div.dir || 'ltr')
+      currentLine = unit.text
+      currentStart = unit.start
+      currentEnd = unit.end
+    } else {
+      if (currentStart === null) currentStart = unit.start
+      currentLine += unit.text
+      currentEnd = unit.end
+    }
+
+    if (rectTop !== null) lastTop = rectTop
+  }
+
+  pushDiagnosticLine(browserLines, currentLine, currentStart, currentEnd, normalizedText, font, div.dir || 'ltr')
+  return { lines: browserLines, height: div.getBoundingClientRect().height }
 }
 
 function measureDomTextWidth(text: string, font: string, direction: string): number {
@@ -389,9 +444,10 @@ function getOurLines(
       if (nextIndex === undefined || prepared.isSpace[nextIndex] !== true) break
       end += prepared.segments[nextIndex]!.length
     }
-    const content = getLineContent(line.text, visibleEnd)
+    const logicalText = normalizedText.slice(start, visibleEnd)
+    const content = getLineContent(logicalText, visibleEnd)
     lines.push({
-      text: line.text,
+      text: logicalText,
       contentText: content.text,
       start,
       end,
@@ -467,8 +523,10 @@ function getLineSegments(
   prepared: PreparedTextWithSegments,
   start: number,
   end: number,
-): Array<{ text: string, width: number, isSpace: boolean }> {
-  const segments: Array<{ text: string, width: number, isSpace: boolean }> = []
+  font: string,
+  direction: string,
+): Array<{ text: string, width: number, domWidth: number, isSpace: boolean }> {
+  const segments: Array<{ text: string, width: number, domWidth: number, isSpace: boolean }> = []
   let offset = 0
   for (let i = 0; i < prepared.segments.length; i++) {
     const text = prepared.segments[i]!
@@ -477,6 +535,7 @@ function getLineSegments(
       segments.push({
         text,
         width: prepared.widths[i]!,
+        domWidth: measureDomTextWidth(text, font, direction),
         isSpace: prepared.isSpace[i]!,
       })
     }
@@ -484,6 +543,23 @@ function getLineSegments(
     offset = nextOffset
   }
   return segments
+}
+
+function measurePairAdjustedWidth(
+  segments: Array<{ text: string, width: number, domWidth: number, isSpace: boolean }>,
+  font: string,
+  direction: string,
+): number {
+  let total = 0
+  for (const segment of segments) {
+    total += segment.domWidth
+  }
+  for (let i = 1; i < segments.length; i++) {
+    const prev = segments[i - 1]!
+    const next = segments[i]!
+    total += measureDomTextWidth(prev.text + next.text, font, direction) - prev.domWidth - next.domWidth
+  }
+  return total
 }
 
 function classifyBreakMismatch(
@@ -621,15 +697,21 @@ function addDiagnostics(
   }
 
   const ourLines = getOurLines(prepared, normalizedText, contentWidth, lineHeight, font)
-  const browserResult = getBrowserLines(prepared, lineProbeDiv, normalizedText, font)
-  const browserLines = browserResult.lines
-  const probeHeight = browserResult.height
+  const probeResult = getBrowserLinesFromSpans(prepared, lineProbeDiv, normalizedText, font)
+  const probeHeight = probeResult.height
   const normalizedHeight = diagnosticDiv.getBoundingClientRect().height
+  const probeReliable =
+    direction !== 'rtl' &&
+    Math.abs(probeHeight - normalizedHeight) <= Math.max(1, lineHeight / 2)
+  const browserResult = probeReliable
+    ? probeResult
+    : getBrowserLinesFromRange(prepared, diagnosticDiv, normalizedText, font)
+  const browserLines = browserResult.lines
 
   let mismatchCount = 0
   let firstMismatch: CorpusLineMismatch | null = null
   let maxLineWidthDrift = 0
-  let maxDriftLine: CorpusReport['maxDriftLine'] = null
+  let maxDriftLine: NonNullable<CorpusReport['maxDriftLine']> | null = null
   const maxLines = Math.max(ourLines.length, browserLines.length)
 
   for (let i = 0; i < maxLines; i++) {
@@ -647,13 +729,16 @@ function addDiagnostics(
       const drift = (ours.sumWidth ?? ours.fullWidth) - ours.fullWidth
       if (Math.abs(drift) > Math.abs(maxLineWidthDrift)) {
         maxLineWidthDrift = drift
+        const segments = getLineSegments(prepared, ours.start, ours.end, font, direction)
         maxDriftLine = {
           line: i + 1,
           drift,
           text: ours.contentText,
           sumWidth: ours.sumWidth ?? ours.fullWidth,
           fullWidth: ours.fullWidth,
-          segments: getLineSegments(prepared, ours.start, ours.end),
+          domWidth: measureDomTextWidth(ours.contentText, font, direction),
+          pairAdjustedWidth: measurePairAdjustedWidth(segments, font, direction),
+          segments,
         }
       }
     }
@@ -663,6 +748,7 @@ function addDiagnostics(
     ...report,
     predictedLineCount: ourLines.length,
     browserLineCount: browserLines.length,
+    browserLineMethod: probeReliable ? 'span-probe' : 'range',
     probeHeight,
     normalizedHeight,
     mismatchCount,
