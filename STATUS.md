@@ -32,31 +32,45 @@ Current benchmark snapshots are checked in as:
 - `benchmarks/safari.json`
 
 `STATUS.md` stays the compact dashboard. The JSON files are the machine-readable source for the current benchmark numbers.
-These snapshot files were captured on `2026-03-27`.
+These snapshot files were captured on `2026-03-28`.
 
 ### Top-level batch
 
 | Browser | `prepare()` | `layout()` | DOM batch | DOM interleaved |
 |---|---:|---:|---:|---:|
-| Chrome | `21.85ms` | `0.11ms` | `4.05ms` | `42.70ms` |
-| Safari | `20.00ms` | `0.15ms` | `88.50ms` | `152.50ms` |
+| Chrome | `18.85ms` | `0.09ms` | `4.05ms` | `43.50ms` |
+| Safari | `18.00ms` | `0.12ms` | `87.00ms` | `149.00ms` |
+
+### Rich line APIs (shared corpus)
+
+| Browser | `layoutWithLines()` | `walkLineRanges()` | `layoutNextLine()` |
+|---|---:|---:|---:|
+| Chrome | `0.05ms` | `0.03ms` | `0.07ms` |
+| Safari | `0.05ms` | `0.03ms` | `0.07ms` |
+
+### Rich line APIs (Arabic long-form stress)
+
+| Browser | `layoutWithLines()` | `walkLineRanges()` | `layoutNextLine()` |
+|---|---:|---:|---:|
+| Chrome | `4.99ms` | `2.17ms` | `6.39ms` |
+| Safari | `4.66ms` | `2.37ms` | `5.53ms` |
 
 ### Long-form corpus stress (Chrome baseline)
 
 | Corpus | analyze() | measure() | prepare() | layout() | segs (analyze→prepared) | lines @ 300px |
 |---|---:|---:|---:|---:|---:|---:|
-| Japanese prose (story 2) | `2.10ms` | `4.10ms` | `6.30ms` | `0.02ms` | `1,773→2,667` | `193` |
-| Japanese prose | `4.10ms` | `8.20ms` | `12.30ms` | `0.04ms` | `3,606→5,044` | `380` |
-| Korean prose | `2.40ms` | `8.20ms` | `12.10ms` | `0.05ms` | `5,282→9,679` | `428` |
-| Chinese prose | `6.40ms` | `13.30ms` | `20.90ms` | `0.06ms` | `5,433→7,949` | `626` |
-| Chinese prose (story 2) | `3.80ms` | `8.20ms` | `12.10ms` | `0.04ms` | `3,271→4,745` | `375` |
-| Thai prose | `8.30ms` | `10.00ms` | `18.90ms` | `0.06ms` | `10,281→10,281` | `1,024` |
-| Myanmar prose | `0.60ms` | `1.30ms` | `1.90ms` | `<0.01ms` | `797→797` | `81` |
-| Myanmar prose (story 2) | `0.40ms` | `1.00ms` | `1.30ms` | `<0.01ms` | `498→498` | `54` |
-| Urdu prose | `2.50ms` | `6.40ms` | `8.90ms` | `0.03ms` | `6,051→6,051` | `351` |
-| Khmer prose | `5.20ms` | `6.10ms` | `11.60ms` | `0.06ms` | `11,109→11,109` | `591` |
-| Hindi prose | `3.80ms` | `11.20ms` | `15.10ms` | `0.05ms` | `9,958→9,958` | `653` |
-| Arabic prose | `43.40ms` | `74.10ms` | `116.60ms` | `0.19ms` | `37,603→37,603` | `2,643` |
+| Japanese prose (story 2) | `1.90ms` | `4.00ms` | `6.10ms` | `0.02ms` | `1,773→2,667` | `193` |
+| Japanese prose | `4.10ms` | `8.30ms` | `12.60ms` | `0.03ms` | `3,606→5,044` | `380` |
+| Korean prose | `2.40ms` | `8.40ms` | `11.40ms` | `0.04ms` | `5,282→9,679` | `428` |
+| Chinese prose | `6.10ms` | `13.10ms` | `19.20ms` | `0.05ms` | `5,433→7,949` | `626` |
+| Chinese prose (story 2) | `3.70ms` | `8.10ms` | `11.80ms` | `0.03ms` | `3,271→4,745` | `375` |
+| Thai prose | `8.10ms` | `5.40ms` | `13.50ms` | `0.05ms` | `10,281→10,281` | `1,024` |
+| Myanmar prose | `0.60ms` | `0.70ms` | `1.30ms` | `<0.01ms` | `797→797` | `81` |
+| Myanmar prose (story 2) | `0.30ms` | `0.60ms` | `0.90ms` | `<0.01ms` | `498→498` | `54` |
+| Urdu prose | `2.20ms` | `3.30ms` | `5.50ms` | `0.03ms` | `6,051→6,051` | `351` |
+| Khmer prose | `5.80ms` | `4.50ms` | `10.40ms` | `0.05ms` | `11,109→11,109` | `591` |
+| Hindi prose | `4.30ms` | `6.60ms` | `11.10ms` | `0.04ms` | `9,958→9,958` | `653` |
+| Arabic prose | `29.10ms` | `34.80ms` | `63.50ms` | `0.17ms` | `37,603→37,603` | `2,643` |
 
 Notes:
 - Chrome remains the main maintained performance baseline. Safari snapshots are still useful, but they are noisier and warm up less predictably.

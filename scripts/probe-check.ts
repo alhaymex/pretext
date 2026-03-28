@@ -11,6 +11,7 @@ import {
 type ProbeReport = {
   status: 'ready' | 'error'
   requestId?: string
+  whiteSpace?: 'normal' | 'pre-wrap'
   browserLineMethod?: 'range' | 'span'
   width?: number
   predictedHeight?: number
@@ -123,6 +124,7 @@ const lineHeight = parseNumberFlag('lineHeight', 32)
 const dir = parseStringFlag('dir') ?? 'ltr'
 const lang = parseStringFlag('lang') ?? (dir === 'rtl' ? 'ar' : 'en')
 const method = parseStringFlag('method')
+const whiteSpace = parseStringFlag('whiteSpace') === 'pre-wrap' ? 'pre-wrap' : 'normal'
 
 let serverProcess: ChildProcess | null = null
 const lock = await acquireBrowserAutomationLock(browser)
@@ -140,6 +142,7 @@ try {
     `&lineHeight=${lineHeight}` +
     `&dir=${encodeURIComponent(dir)}` +
     `&lang=${encodeURIComponent(lang)}` +
+    `&whiteSpace=${encodeURIComponent(whiteSpace)}` +
     (method === null ? '' : `&method=${encodeURIComponent(method)}`) +
     `&requestId=${encodeURIComponent(requestId)}`
   const report = await loadHashReport<ProbeReport>(session, url, requestId, browser)

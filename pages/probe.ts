@@ -57,6 +57,7 @@ type ProbeReport = {
   status: 'ready' | 'error'
   requestId?: string
   text?: string
+  whiteSpace?: 'normal' | 'pre-wrap'
   width?: number
   contentWidth?: number
   font?: string
@@ -97,6 +98,8 @@ const direction = params.get('dir') === 'rtl' ? 'rtl' : 'ltr'
 const lang = params.get('lang') ?? (direction === 'rtl' ? 'ar' : 'en')
 const browserLineMethod = params.get('method') === 'span' ? 'span' : 'range'
 const verbose = params.get('verbose') === '1'
+const whiteSpace = params.get('whiteSpace') === 'pre-wrap' ? 'pre-wrap' : 'normal'
+const cssWhiteSpace = whiteSpace === 'pre-wrap' ? 'pre-wrap' : 'normal'
 
 const stats = document.getElementById('stats')!
 const book = document.getElementById('book')!
@@ -114,7 +117,7 @@ diagnosticDiv.style.left = '-99999px'
 diagnosticDiv.style.visibility = 'hidden'
 diagnosticDiv.style.pointerEvents = 'none'
 diagnosticDiv.style.boxSizing = 'border-box'
-diagnosticDiv.style.whiteSpace = 'normal'
+diagnosticDiv.style.whiteSpace = cssWhiteSpace
 diagnosticDiv.style.wordWrap = 'break-word'
 diagnosticDiv.style.overflowWrap = 'break-word'
 diagnosticDiv.style.padding = `${PADDING}px`
@@ -430,6 +433,7 @@ function init(): void {
     book.style.lineHeight = `${lineHeight}px`
     book.style.padding = `${PADDING}px`
     book.style.width = `${width}px`
+    book.style.whiteSpace = cssWhiteSpace
 
     diagnosticDiv.textContent = text
     diagnosticDiv.lang = lang
@@ -438,8 +442,9 @@ function init(): void {
     diagnosticDiv.style.lineHeight = `${lineHeight}px`
     diagnosticDiv.style.padding = `${PADDING}px`
     diagnosticDiv.style.width = `${width}px`
+    diagnosticDiv.style.whiteSpace = cssWhiteSpace
 
-    const prepared = prepareWithSegments(text, font)
+    const prepared = prepareWithSegments(text, font, { whiteSpace })
     const normalizedText = prepared.segments.join('')
     const contentWidth = width - PADDING * 2
     const predicted = layout(prepared, contentWidth, lineHeight)
@@ -458,6 +463,7 @@ function init(): void {
     const report = withRequestId({
       status: 'ready',
       text,
+      whiteSpace,
       width,
       contentWidth,
       font,

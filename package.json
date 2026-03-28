@@ -50,6 +50,7 @@
     "gatsby-check:safari": "GATSBY_CHECK_BROWSER=safari bun run scripts/gatsby-check.ts",
     "gatsby-sweep": "bun run scripts/gatsby-sweep.ts",
     "gatsby-sweep:safari": "GATSBY_CHECK_BROWSER=safari bun run scripts/gatsby-sweep.ts",
+    "pre-wrap-check": "bun run scripts/pre-wrap-check.ts",
     "probe-check": "bun run scripts/probe-check.ts",
     "probe-check:safari": "PROBE_CHECK_BROWSER=safari bun run scripts/probe-check.ts",
     "site:build": "rm -rf site && bun run scripts/build-demo-site.ts",

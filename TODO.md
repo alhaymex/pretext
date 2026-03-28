@@ -32,7 +32,7 @@ Not worth doing right now:
 Still-open design questions:
 
 - Whether line-fit tolerance should stay as a browser shim or move toward runtime calibration.
-- Whether explicit hard breaks / paragraph-aware layout should become first-class.
+- Whether the new `pre-wrap` mode should grow beyond spaces / tabs / `\n`, especially toward the rest of the CSS `pre-wrap` surface.
 - If there is strong real-world demand for `system-ui`, whether to add a narrow prepare-time DOM prefix fallback for detected bad tuples instead of trying to force a pure-canvas fix.
 - Whether server canvas support should become an explicit supported backend.
 - Whether the rich path eventually wants a fuller bidi metadata helper for custom rendering or selection-like work, without changing the hot-path layout architecture.

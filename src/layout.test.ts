@@ -74,6 +74,12 @@ function measureWidth(text: string, font: string): number {
   return width
 }
 
+function nextTabAdvance(lineWidth: number, spaceWidth: number, tabSize = 8): number {
+  const tabStopAdvance = spaceWidth * tabSize
+  const remainder = lineWidth % tabStopAdvance
+  return remainder === 0 ? tabStopAdvance : tabStopAdvance - remainder
+}
+
 class TestCanvasRenderingContext2D {
   font = ''
 
@@ -123,6 +129,30 @@ describe('prepare invariants', () => {
     expect(prepared.segments).toEqual(['Hello', ' ', 'World'])
   })
 
+  test('pre-wrap mode keeps ordinary spaces instead of collapsing them', () => {
+    const prepared = prepareWithSegments('  Hello   World  ', FONT, { whiteSpace: 'pre-wrap' })
+    expect(prepared.segments).toEqual(['  ', 'Hello', '   ', 'World', '  '])
+    expect(prepared.kinds).toEqual(['preserved-space', 'text', 'preserved-space', 'text', 'preserved-space'])
+  })
+
+  test('pre-wrap mode keeps hard breaks as explicit segments', () => {
+    const prepared = prepareWithSegments('Hello\nWorld', FONT, { whiteSpace: 'pre-wrap' })
+    expect(prepared.segments).toEqual(['Hello', '\n', 'World'])
+    expect(prepared.kinds).toEqual(['text', 'hard-break', 'text'])
+  })
+
+  test('pre-wrap mode normalizes CRLF into a single hard break', () => {
+    const prepared = prepareWithSegments('Hello\r\nWorld', FONT, { whiteSpace: 'pre-wrap' })
+    expect(prepared.segments).toEqual(['Hello', '\n', 'World'])
+    expect(prepared.kinds).toEqual(['text', 'hard-break', 'text'])
+  })
+
+  test('pre-wrap mode keeps tabs as explicit segments', () => {
+    const prepared = prepareWithSegments('Hello\tWorld', FONT, { whiteSpace: 'pre-wrap' })
+    expect(prepared.segments).toEqual(['Hello', '\t', 'World'])
+    expect(prepared.kinds).toEqual(['text', 'tab', 'text'])
+  })
+
   test('keeps non-breaking spaces as glue instead of collapsing them away', () => {
     const prepared = prepareWithSegments('Hello\u00A0world', FONT)
     expect(prepared.segments).toEqual(['Hello\u00A0world'])
@@ -132,6 +162,11 @@ describe('prepare invariants', () => {
   test('keeps standalone non-breaking spaces as visible glue content', () => {
     const prepared = prepareWithSegments('\u00A0', FONT)
     expect(prepared.segments).toEqual(['\u00A0'])
+    expect(layout(prepared, 200, LINE_HEIGHT)).toEqual({ lineCount: 1, height: LINE_HEIGHT })
+  })
+
+  test('pre-wrap mode keeps whitespace-only input visible', () => {
+    const prepared = prepare('   ', FONT, { whiteSpace: 'pre-wrap' })
     expect(layout(prepared, 200, LINE_HEIGHT)).toEqual({ lineCount: 1, height: LINE_HEIGHT })
   })
 
@@ -421,6 +456,111 @@ describe('layout invariants', () => {
     }
 
     expect(actual).toEqual(expected.lines)
+  })
+
+  test('pre-wrap mode keeps hanging spaces visible at line end', () => {
+    const prepared = prepareWithSegments('foo   bar', FONT, { whiteSpace: 'pre-wrap' })
+    const width = measureWidth('foo', FONT) + 0.1
+    const lines = layoutWithLines(prepared, width, LINE_HEIGHT)
+    expect(lines.lineCount).toBe(2)
+    expect(lines.lines.map(line => line.text)).toEqual(['foo   ', 'bar'])
+    expect(layout(prepared, width, LINE_HEIGHT).lineCount).toBe(2)
+  })
+
+  test('pre-wrap mode treats hard breaks as forced line boundaries', () => {
+    const prepared = prepareWithSegments('a\nb', FONT, { whiteSpace: 'pre-wrap' })
+    const lines = layoutWithLines(prepared, 200, LINE_HEIGHT)
+    expect(lines.lines.map(line => line.text)).toEqual(['a', 'b'])
+    expect(layout(prepared, 200, LINE_HEIGHT).lineCount).toBe(2)
+  })
+
+  test('pre-wrap mode treats tabs as hanging whitespace aligned to tab stops', () => {
+    const prepared = prepareWithSegments('a\tb', FONT, { whiteSpace: 'pre-wrap' })
+    const spaceWidth = measureWidth(' ', FONT)
+    const prefixWidth = measureWidth('a', FONT)
+    const tabAdvance = nextTabAdvance(prefixWidth, spaceWidth, 8)
+    const textWidth = prefixWidth + tabAdvance + measureWidth('b', FONT)
+    const width = textWidth - 0.1
+
+    const lines = layoutWithLines(prepared, width, LINE_HEIGHT)
+    expect(lines.lines.map(line => line.text)).toEqual(['a\t', 'b'])
+    expect(layout(prepared, width, LINE_HEIGHT).lineCount).toBe(2)
+  })
+
+  test('pre-wrap mode treats consecutive tabs as distinct tab stops', () => {
+    const prepared = prepareWithSegments('a\t\tb', FONT, { whiteSpace: 'pre-wrap' })
+    const spaceWidth = measureWidth(' ', FONT)
+    const prefixWidth = measureWidth('a', FONT)
+    const firstTabAdvance = nextTabAdvance(prefixWidth, spaceWidth, 8)
+    const afterFirstTab = prefixWidth + firstTabAdvance
+    const secondTabAdvance = nextTabAdvance(afterFirstTab, spaceWidth, 8)
+    const width = prefixWidth + firstTabAdvance + secondTabAdvance - 0.1
+
+    const lines = layoutWithLines(prepared, width, LINE_HEIGHT)
+    expect(lines.lines.map(line => line.text)).toEqual(['a\t\t', 'b'])
+    expect(layout(prepared, width, LINE_HEIGHT).lineCount).toBe(2)
+  })
+
+  test('pre-wrap mode keeps whitespace-only middle lines visible', () => {
+    const prepared = prepareWithSegments('foo\n  \nbar', FONT, { whiteSpace: 'pre-wrap' })
+    const lines = layoutWithLines(prepared, 200, LINE_HEIGHT)
+    expect(lines.lines.map(line => line.text)).toEqual(['foo', '  ', 'bar'])
+    expect(layout(prepared, 200, LINE_HEIGHT)).toEqual({ lineCount: 3, height: LINE_HEIGHT * 3 })
+  })
+
+  test('pre-wrap mode keeps trailing spaces before a hard break on the current line', () => {
+    const prepared = prepareWithSegments('foo  \nbar', FONT, { whiteSpace: 'pre-wrap' })
+    const lines = layoutWithLines(prepared, 200, LINE_HEIGHT)
+    expect(lines.lines.map(line => line.text)).toEqual(['foo  ', 'bar'])
+    expect(layout(prepared, 200, LINE_HEIGHT)).toEqual({ lineCount: 2, height: LINE_HEIGHT * 2 })
+  })
+
+  test('pre-wrap mode keeps trailing tabs before a hard break on the current line', () => {
+    const prepared = prepareWithSegments('foo\t\nbar', FONT, { whiteSpace: 'pre-wrap' })
+    const lines = layoutWithLines(prepared, 200, LINE_HEIGHT)
+    expect(lines.lines.map(line => line.text)).toEqual(['foo\t', 'bar'])
+    expect(layout(prepared, 200, LINE_HEIGHT)).toEqual({ lineCount: 2, height: LINE_HEIGHT * 2 })
+  })
+
+  test('pre-wrap mode restarts tab stops after a hard break', () => {
+    const prepared = prepareWithSegments('foo\n\tbar', FONT, { whiteSpace: 'pre-wrap' })
+    const lines = layoutWithLines(prepared, 200, LINE_HEIGHT)
+    const spaceWidth = measureWidth(' ', FONT)
+    const expectedSecondLineWidth = nextTabAdvance(0, spaceWidth, 8) + measureWidth('bar', FONT)
+
+    expect(lines.lines.map(line => line.text)).toEqual(['foo', '\tbar'])
+    expect(lines.lines[1]!.width).toBeCloseTo(expectedSecondLineWidth, 5)
+  })
+
+  test('layoutNextLine stays aligned with layoutWithLines in pre-wrap mode', () => {
+    const prepared = prepareWithSegments('foo\n  bar baz\nquux', FONT, { whiteSpace: 'pre-wrap' })
+    const width = measureWidth('  bar', FONT) + 0.1
+    const expected = layoutWithLines(prepared, width, LINE_HEIGHT)
+
+    const actual = []
+    let cursor = { segmentIndex: 0, graphemeIndex: 0 }
+    while (true) {
+      const line = layoutNextLine(prepared, cursor, width)
+      if (line === null) break
+      actual.push(line)
+      cursor = line.end
+    }
+
+    expect(actual).toEqual(expected.lines)
+  })
+
+  test('pre-wrap mode keeps empty lines from consecutive hard breaks', () => {
+    const prepared = prepareWithSegments('\n\n', FONT, { whiteSpace: 'pre-wrap' })
+    const lines = layoutWithLines(prepared, 200, LINE_HEIGHT)
+    expect(lines.lines.map(line => line.text)).toEqual(['', ''])
+    expect(layout(prepared, 200, LINE_HEIGHT)).toEqual({ lineCount: 2, height: LINE_HEIGHT * 2 })
+  })
+
+  test('pre-wrap mode does not invent an extra trailing empty line', () => {
+    const prepared = prepareWithSegments('a\n', FONT, { whiteSpace: 'pre-wrap' })
+    const lines = layoutWithLines(prepared, 200, LINE_HEIGHT)
+    expect(lines.lines.map(line => line.text)).toEqual(['a'])
+    expect(layout(prepared, 200, LINE_HEIGHT)).toEqual({ lineCount: 1, height: LINE_HEIGHT })
   })
 
   test('overlong breakable segments wrap onto a fresh line when the current line already has content', () => {

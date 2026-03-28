@@ -1,4 +1,14 @@
-export type SegmentBreakKind = 'text' | 'space' | 'glue' | 'zero-width-break' | 'soft-hyphen'
+export type WhiteSpaceMode = 'normal' | 'pre-wrap'
+
+export type SegmentBreakKind =
+  | 'text'
+  | 'space'
+  | 'preserved-space'
+  | 'tab'
+  | 'glue'
+  | 'zero-width-break'
+  | 'soft-hyphen'
+  | 'hard-break'
 
 type SegmentationPiece = {
   text: string
@@ -15,7 +25,13 @@ export type MergedSegmentation = {
   starts: number[]
 }
 
-export type TextAnalysis = { normalized: string } & MergedSegmentation
+export type AnalysisChunk = {
+  startSegmentIndex: number
+  endSegmentIndex: number
+  consumedEndSegmentIndex: number
+}
+
+export type TextAnalysis = { normalized: string, chunks: AnalysisChunk[] } & MergedSegmentation
 
 export type AnalysisProfile = {
   carryCJKAfterClosingQuote: boolean
@@ -23,6 +39,19 @@ export type AnalysisProfile = {
 
 const collapsibleWhitespaceRunRe = /[ \t\n\r\f]+/g
 const needsWhitespaceNormalizationRe = /[\t\n\r\f]| {2,}|^ | $/
+
+type WhiteSpaceProfile = {
+  mode: WhiteSpaceMode
+  preserveOrdinarySpaces: boolean
+  preserveHardBreaks: boolean
+}
+
+function getWhiteSpaceProfile(whiteSpace?: WhiteSpaceMode): WhiteSpaceProfile {
+  const mode = whiteSpace ?? 'normal'
+  return mode === 'pre-wrap'
+    ? { mode, preserveOrdinarySpaces: true, preserveHardBreaks: true }
+    : { mode, preserveOrdinarySpaces: false, preserveHardBreaks: false }
+}
 
 export function normalizeWhitespaceNormal(text: string): string {
   if (!needsWhitespaceNormalizationRe.test(text)) return text
@@ -35,6 +64,13 @@ export function normalizeWhitespaceNormal(text: string): string {
     normalized = normalized.slice(0, -1)
   }
   return normalized
+}
+
+function normalizeWhitespacePreWrap(text: string): string {
+  if (!/[\r\f]/.test(text)) return text.replace(/\r\n/g, '\n')
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/[\r\f]/g, '\n')
 }
 
 let sharedWordSegmenter: Intl.Segmenter | null = null
@@ -282,7 +318,12 @@ export function endsWithClosingQuote(text: string): boolean {
   return false
 }
 
-function classifySegmentBreakChar(ch: string): SegmentBreakKind {
+function classifySegmentBreakChar(ch: string, whiteSpaceProfile: WhiteSpaceProfile): SegmentBreakKind {
+  if (whiteSpaceProfile.preserveOrdinarySpaces || whiteSpaceProfile.preserveHardBreaks) {
+    if (ch === ' ') return 'preserved-space'
+    if (ch === '\t') return 'tab'
+    if (whiteSpaceProfile.preserveHardBreaks && ch === '\n') return 'hard-break'
+  }
   if (ch === ' ') return 'space'
   if (ch === '\u00A0' || ch === '\u202F' || ch === '\u2060' || ch === '\uFEFF') {
     return 'glue'
@@ -292,7 +333,12 @@ function classifySegmentBreakChar(ch: string): SegmentBreakKind {
   return 'text'
 }
 
-function splitSegmentByBreakKind(segment: string, isWordLike: boolean, start: number): SegmentationPiece[] {
+function splitSegmentByBreakKind(
+  segment: string,
+  isWordLike: boolean,
+  start: number,
+  whiteSpaceProfile: WhiteSpaceProfile,
+): SegmentationPiece[] {
   const pieces: SegmentationPiece[] = []
   let currentKind: SegmentBreakKind | null = null
   let currentText = ''
@@ -301,7 +347,7 @@ function splitSegmentByBreakKind(segment: string, isWordLike: boolean, start: nu
   let offset = 0
 
   for (const ch of segment) {
-    const kind = classifySegmentBreakChar(ch)
+    const kind = classifySegmentBreakChar(ch, whiteSpaceProfile)
     const wordLike = kind === 'text' && isWordLike
 
     if (currentKind !== null && kind === currentKind && wordLike === currentWordLike) {
@@ -338,6 +384,15 @@ function splitSegmentByBreakKind(segment: string, isWordLike: boolean, start: nu
   return pieces
 }
 
+function isTextRunBoundary(kind: SegmentBreakKind): boolean {
+  return (
+    kind === 'space' ||
+    kind === 'preserved-space' ||
+    kind === 'zero-width-break' ||
+    kind === 'hard-break'
+  )
+}
+
 const urlSchemeSegmentRe = /^[A-Za-z][A-Za-z0-9+.-]*:$/
 
 function isUrlLikeRunStart(segmentation: MergedSegmentation, index: number): boolean {
@@ -365,7 +420,7 @@ function mergeUrlLikeRuns(segmentation: MergedSegmentation): MergedSegmentation 
     if (kinds[i] !== 'text' || !isUrlLikeRunStart(segmentation, i)) continue
 
     let j = i + 1
-    while (j < segmentation.len && kinds[j] !== 'space' && kinds[j] !== 'zero-width-break') {
+    while (j < segmentation.len && !isTextRunBoundary(kinds[j]!)) {
       texts[i] += texts[j]!
       isWordLike[i] = true
       const endsQueryPrefix = texts[j]!.includes('?')
@@ -421,8 +476,7 @@ function mergeUrlQueryRuns(segmentation: MergedSegmentation): MergedSegmentation
     const nextIndex = i + 1
     if (
       nextIndex >= segmentation.len ||
-      segmentation.kinds[nextIndex] === 'space' ||
-      segmentation.kinds[nextIndex] === 'zero-width-break'
+      isTextRunBoundary(segmentation.kinds[nextIndex]!)
     ) {
       continue
     }
@@ -430,7 +484,7 @@ function mergeUrlQueryRuns(segmentation: MergedSegmentation): MergedSegmentation
     let queryText = ''
     const queryStart = segmentation.starts[nextIndex]!
     let j = nextIndex
-    while (j < segmentation.len && segmentation.kinds[j] !== 'space' && segmentation.kinds[j] !== 'zero-width-break') {
+    while (j < segmentation.len && !isTextRunBoundary(segmentation.kinds[j]!)) {
       queryText += segmentation.texts[j]!
       j++
     }
@@ -726,7 +780,11 @@ function carryTrailingForwardStickyAcrossCJKBoundary(segmentation: MergedSegment
 }
 
 
-function buildMergedSegmentation(normalized: string, profile: AnalysisProfile): MergedSegmentation {
+function buildMergedSegmentation(
+  normalized: string,
+  profile: AnalysisProfile,
+  whiteSpaceProfile: WhiteSpaceProfile,
+): MergedSegmentation {
   const wordSegmenter = getSharedWordSegmenter()
   let mergedLen = 0
   const mergedTexts: string[] = []
@@ -735,7 +793,7 @@ function buildMergedSegmentation(normalized: string, profile: AnalysisProfile): 
   const mergedStarts: number[] = []
 
   for (const s of wordSegmenter.segment(normalized)) {
-    for (const piece of splitSegmentByBreakKind(s.segment, s.isWordLike ?? false, s.index)) {
+    for (const piece of splitSegmentByBreakKind(s.segment, s.isWordLike ?? false, s.index, whiteSpaceProfile)) {
       const isText = piece.kind === 'text'
 
       if (
@@ -868,7 +926,7 @@ function buildMergedSegmentation(normalized: string, profile: AnalysisProfile): 
     const split = splitLeadingSpaceAndMarks(withMergedUrls.texts[i]!)
     if (split === null) continue
     if (
-      withMergedUrls.kinds[i] !== 'space' ||
+      (withMergedUrls.kinds[i] !== 'space' && withMergedUrls.kinds[i] !== 'preserved-space') ||
       withMergedUrls.kinds[i + 1] !== 'text' ||
       !containsArabicScript(withMergedUrls.texts[i + 1]!)
     ) {
@@ -877,7 +935,7 @@ function buildMergedSegmentation(normalized: string, profile: AnalysisProfile): 
 
     withMergedUrls.texts[i] = split.space
     withMergedUrls.isWordLike[i] = false
-    withMergedUrls.kinds[i] = 'space'
+    withMergedUrls.kinds[i] = withMergedUrls.kinds[i] === 'preserved-space' ? 'preserved-space' : 'space'
     withMergedUrls.texts[i + 1] = split.marks + withMergedUrls.texts[i + 1]!
     withMergedUrls.starts[i + 1] = withMergedUrls.starts[i]! + split.space.length
   }
@@ -885,11 +943,54 @@ function buildMergedSegmentation(normalized: string, profile: AnalysisProfile): 
   return withMergedUrls
 }
 
-export function analyzeText(text: string, profile: AnalysisProfile): TextAnalysis {
-  const normalized = normalizeWhitespaceNormal(text)
+function compileAnalysisChunks(segmentation: MergedSegmentation, whiteSpaceProfile: WhiteSpaceProfile): AnalysisChunk[] {
+  if (segmentation.len === 0) return []
+  if (!whiteSpaceProfile.preserveHardBreaks) {
+    return [{
+      startSegmentIndex: 0,
+      endSegmentIndex: segmentation.len,
+      consumedEndSegmentIndex: segmentation.len,
+    }]
+  }
+
+  const chunks: AnalysisChunk[] = []
+  let startSegmentIndex = 0
+
+  for (let i = 0; i < segmentation.len; i++) {
+    if (segmentation.kinds[i] !== 'hard-break') continue
+
+    chunks.push({
+      startSegmentIndex,
+      endSegmentIndex: i,
+      consumedEndSegmentIndex: i + 1,
+    })
+    startSegmentIndex = i + 1
+  }
+
+  if (startSegmentIndex < segmentation.len) {
+    chunks.push({
+      startSegmentIndex,
+      endSegmentIndex: segmentation.len,
+      consumedEndSegmentIndex: segmentation.len,
+    })
+  }
+
+  return chunks
+}
+
+export function analyzeText(
+  text: string,
+  profile: AnalysisProfile,
+  whiteSpace: WhiteSpaceMode = 'normal',
+): TextAnalysis {
+  const whiteSpaceProfile = getWhiteSpaceProfile(whiteSpace)
+  const normalized = whiteSpaceProfile.mode === 'pre-wrap'
+    ? normalizeWhitespacePreWrap(text)
+    : normalizeWhitespaceNormal(text)
   if (normalized.length === 0) {
     return {
       normalized,
+      chunks: [],
       len: 0,
       texts: [],
       isWordLike: [],
@@ -897,5 +998,10 @@ export function analyzeText(text: string, profile: AnalysisProfile): TextAnalysi
       starts: [],
     }
   }
-  return { normalized, ...buildMergedSegmentation(normalized, profile) }
+  const segmentation = buildMergedSegmentation(normalized, profile, whiteSpaceProfile)
+  return {
+    normalized,
+    chunks: compileAnalysisChunks(segmentation, whiteSpaceProfile),
+    ...segmentation,
+  }
 }
