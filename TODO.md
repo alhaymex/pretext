@@ -9,8 +9,11 @@ Current priorities:
 2. Next engine work
 
 - Use the split `analyze()` / `measure()` benchmark rows to steer any remaining `prepare()` work instead of reopening generic profiling.
+- Expand mixed app text only when it adds a real product-shaped class, e.g. URL/query runs, mixed bidi with numbers, emoji ZWJ runs, or `NBSP` / `ZWSP` / `WJ` behavior.
 - Broaden canaries only when the source text is clean.
+- If we add another Southeast Asian canary, prefer a clean source text that broadens the class instead of another wrapped/legal/raw-source artifact.
 - Expand the sampled font matrix only where a canary still looks genuinely imperfect.
+- Treat strongly font-sensitive or shaping-sensitive misses as boundary-finding for the current architecture, not automatic invitations for another local glue rule.
 - Keep the hot `layout()` path simple and allocation-light while the rich path absorbs more userland layout needs.
 
 3. Demo work
@@ -25,6 +28,7 @@ Not worth doing right now:
 - Do not put measurement back in `layout()`.
 - Do not resurrect dirty corpora just to cover another language.
 - Do not overfit one-line misses in one browser/corpus without broader evidence.
+- Do not let browser-profile shims turn into a grab bag of ad hoc engine knobs.
 - Do not explode the public API with cache or engine knobs.
 
 Still-open design questions:
@@ -36,3 +40,4 @@ Still-open design questions:
 - Whether automatic hyphenation beyond manual soft hyphen is in scope.
 - Whether intrinsic sizing / logical width APIs are needed beyond fixed-width height prediction.
 - Whether bidi rendering concerns like selection and copy/paste belong here or stay out of scope.
+- Whether a separate optional slow verify path is worth having as a diagnostic mode, without contaminating `layout()`.
